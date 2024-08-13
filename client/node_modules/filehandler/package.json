@@ -1,0 +1,22 @@
+{
+  "name": "filehandler",
+  "version": "0.0.0",
+  "description": "NodeJs FileHandler",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maskwang/filehandler.git"
+  },
+  "keywords": [
+    "FileHandler"
+  ],
+  "author": "maskwang",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/maskwang/filehandler/issues"
+  },
+  "homepage": "https://github.com/maskwang/filehandler"
+}
