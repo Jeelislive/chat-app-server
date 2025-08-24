@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: chat-app-server
+    env: node
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: PRODUCTION
