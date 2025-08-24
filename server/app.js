@@ -41,21 +41,12 @@ cloudinary.config({
 });
 
 const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+  cors: corsOptions,
+});
 
-// For Vercel deployment, we need to handle Socket.IO differently
-let server, io;
-
-if (process.env.VERCEL) {
-  // In Vercel, we can't use Socket.IO properly, so we'll disable it
-  console.log("Running on Vercel - Socket.IO disabled");
-} else {
-  // Local development or other deployments
-  server = createServer(app);
-  io = new Server(server, {
-    cors: corsOptions,
-  });
-  app.set("io", io);
-}
+app.set("io", io);
 
 // Security and performance middleware
 app.use(helmet());
@@ -83,95 +74,85 @@ app.get("/", (req, res) => {
   res.send("Hello World from home - Chat App Server is running!");  
 });
 
-// Only set up Socket.IO if not on Vercel
-if (!process.env.VERCEL && io) {
-  io.use((socket, next) => {
-    cookieParser()(
-      socket.request,
-      socket.request.res,
-      async (err) => await socketAuthenticator(err, socket, next)
-    );
+io.use((socket, next) => {
+  cookieParser()(
+    socket.request,
+    socket.request.res,
+    async (err) => await socketAuthenticator(err, socket, next)
+  );
+});
+
+io.on("connection", (socket) => {
+  const user = socket.user;
+
+  userSocketIDs.set(user._id.toString(), socket.id);
+
+  socket.on(NEW_MESSAGE, async ({ chatId, members, message }) => {
+    const messageForRealTime = {
+      content: message,
+      _id: uuid(),
+      sender: {
+        _id: user._id,
+        name: user.name,
+      },
+      chat: chatId,
+      createdAt: new Date().toString(),
+    };
+
+    const messageForDB = {
+      content: message,
+      sender: user._id,
+      chat: chatId,
+    };
+
+    const membersSocket = getSockets(members);
+    io.to(membersSocket).emit(NEW_MESSAGE, {
+      chatId,
+      message: messageForRealTime,
+    });
+    io.to(membersSocket).emit(NEW_MESSAGE_ALERT, { chatId });
+    try {
+      await Message.create(messageForDB);
+    } catch (error) {
+      throw new Error(error);
+    }
   });
 
-  io.on("connection", (socket) => {
-    const user = socket.user;
-
-    userSocketIDs.set(user._id.toString(), socket.id);
-
-    socket.on(NEW_MESSAGE, async ({ chatId, members, message }) => {
-      const messageForRealTime = {
-        content: message,
-        _id: uuid(),
-        sender: {
-          _id: user._id,
-          name: user.name,
-        },
-        chat: chatId,
-        createdAt: new Date().toString(),
-      };
-
-      const messageForDB = {
-        content: message,
-        sender: user._id,
-        chat: chatId,
-      };
-
-      const membersSocket = getSockets(members);
-      io.to(membersSocket).emit(NEW_MESSAGE, {
-        chatId,
-        message: messageForRealTime,
-      });
-      io.to(membersSocket).emit(NEW_MESSAGE_ALERT, { chatId });
-      try {
-        await Message.create(messageForDB);
-      } catch (error) {
-        throw new Error(error);
-      }
-    });
-
-    socket.on(START_TYPING, ({ members, chatId }) => {
-      const membersSockets = getSockets(members);
-      socket.to(membersSockets).emit(START_TYPING, { chatId });
-    });
-
-    socket.on(STOP_TYPING, ({ members, chatId }) => {
-      const membersSockets = getSockets(members);
-      socket.to(membersSockets).emit(STOP_TYPING, { chatId });
-    });
-
-    socket.on(CHAT_JOINED, ({ userId, members }) => {
-      onlineUsers.add(userId.toString());
-
-      const membersSocket = getSockets(members);
-      io.to(membersSocket).emit(ONLINE_USERS, Array.from(onlineUsers));
-    });
-
-    socket.on(CHAT_LEAVED, ({ userId, members }) => {
-      onlineUsers.delete(userId.toString());
-
-      const membersSocket = getSockets(members);
-      io.to(membersSocket).emit(ONLINE_USERS, Array.from(onlineUsers));
-    });
-
-    socket.on("disconnect", () => {
-      userSocketIDs.delete(user._id.toString());
-      onlineUsers.delete(user._id.toString());
-      socket.broadcast.emit(ONLINE_USERS, Array.from(onlineUsers));
-    });
+  socket.on(START_TYPING, ({ members, chatId }) => {
+    const membersSockets = getSockets(members);
+    socket.to(membersSockets).emit(START_TYPING, { chatId });
   });
-}
+
+  socket.on(STOP_TYPING, ({ members, chatId }) => {
+    const membersSockets = getSockets(members);
+    socket.to(membersSockets).emit(STOP_TYPING, { chatId });
+  });
+
+  socket.on(CHAT_JOINED, ({ userId, members }) => {
+    onlineUsers.add(userId.toString());
+
+    const membersSocket = getSockets(members);
+    io.to(membersSocket).emit(ONLINE_USERS, Array.from(onlineUsers));
+  });
+
+  socket.on(CHAT_LEAVED, ({ userId, members }) => {
+    onlineUsers.delete(userId.toString());
+
+    const membersSocket = getSockets(members);
+    io.to(membersSocket).emit(ONLINE_USERS, Array.from(onlineUsers));
+  });
+
+  socket.on("disconnect", () => {
+    userSocketIDs.delete(user._id.toString());
+    onlineUsers.delete(user._id.toString());
+    socket.broadcast.emit(ONLINE_USERS, Array.from(onlineUsers));
+  });
+});
 
 app.use(errorMiddleware);
 
-// Export the app for Vercel
-export default app;
-
-// Only start server if not in Vercel
-if (!process.env.VERCEL) {
-  const serverInstance = server || app;
-  serverInstance.listen(port, () => {
-    console.log(`Server is running on port ${port} in ${envMode} mode`);
-  });
-}
+server.listen(port, () => {
+  console.log(`Server is running on port ${port} in ${envMode} mode`);
+});
 
 export { envMode, userSocketIDs };
