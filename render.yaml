@@ -2,8 +2,12 @@ services:
   - type: web
     name: chat-app-server
     env: node
-    buildCommand: cd server && npm install
+    runtime: node
+    buildCommand: cd server && npm ci
     startCommand: cd server && npm start
+    rootDir: .
     envVars:
       - key: NODE_ENV
         value: PRODUCTION
+      - key: PORT
+        value: 10000
